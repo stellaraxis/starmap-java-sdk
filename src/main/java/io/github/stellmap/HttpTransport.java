@@ -31,6 +31,7 @@ final class HttpTransport {
 
     private final ObjectMapper objectMapper;
     private final OkHttpClient okHttpClient;
+    private final OkHttpClient watchOkHttpClient;
     private final Map<String, String> defaultHeaders;
     private final StarMapClientMetrics metrics;
     private final boolean followLeaderRedirect;
@@ -38,11 +39,14 @@ final class HttpTransport {
     HttpTransport(
             ObjectMapper objectMapper,
             OkHttpClient okHttpClient,
+            OkHttpClient watchOkHttpClient,
             Map<String, String> defaultHeaders,
             StarMapClientMetrics metrics,
             boolean followLeaderRedirect) {
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
         this.okHttpClient = Objects.requireNonNull(okHttpClient, "okHttpClient must not be null");
+        this.watchOkHttpClient =
+                Objects.requireNonNull(watchOkHttpClient, "watchOkHttpClient must not be null");
         this.defaultHeaders = Objects.requireNonNull(defaultHeaders, "defaultHeaders must not be null");
         this.metrics = Objects.requireNonNull(metrics, "metrics must not be null");
         this.followLeaderRedirect = followLeaderRedirect;
@@ -120,14 +124,17 @@ final class HttpTransport {
         return builder.build();
     }
 
-    Call newCall(Request request) {
-        return okHttpClient.newCall(request);
+    Call newWatchCall(Request request) {
+        return watchOkHttpClient.newCall(request);
     }
 
     void close() {
         okHttpClient.dispatcher().cancelAll();
+        watchOkHttpClient.dispatcher().cancelAll();
         okHttpClient.dispatcher().executorService().shutdown();
+        watchOkHttpClient.dispatcher().executorService().shutdown();
         okHttpClient.connectionPool().evictAll();
+        watchOkHttpClient.connectionPool().evictAll();
     }
 
     URI resolve(URI currentBaseUri, String path) {
@@ -168,7 +175,8 @@ final class HttpTransport {
             String acceptHeader,
             String contentTypeHeader) {
         long startNanos = System.nanoTime();
-        Request request = buildJsonRequest(method, requestUri, requestBody, acceptHeader, contentTypeHeader);
+        Request request =
+                buildJsonRequest(method, requestUri, requestBody, acceptHeader, contentTypeHeader);
         try (Response response = okHttpClient.newCall(request).execute()) {
             NettyHttpResponse httpResponse =
                     new NettyHttpResponse(response.code(), readResponseBody(response.body()));
@@ -181,8 +189,7 @@ final class HttpTransport {
             return httpResponse;
         } catch (IOException e) {
             metrics.recordRequest(method, requestUri.getPath(), 0, System.nanoTime() - startNanos, false);
-            log.warn(
-                    "StarMap request execution failed method={}, uri={}", method, requestUri, e);
+            log.warn("StarMap request execution failed method={}, uri={}", method, requestUri, e);
             throw new StellMapTransportException("Failed to call StarMap HTTP API", e);
         } catch (RuntimeException e) {
             metrics.recordRequest(method, requestUri.getPath(), 0, System.nanoTime() - startNanos, false);

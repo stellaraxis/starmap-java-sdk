@@ -221,7 +221,7 @@ final class ManagedDirectoryWatchSubscription implements ServiceDirectorySubscri
 
     private void openWatchStream(URI watchUri, boolean reconnectAttempt) {
         Request request = transport.buildWatchRequest(watchUri);
-        Call call = transport.newCall(request);
+        Call call = transport.newWatchCall(request);
         callRef.set(call);
         try (Response response = call.execute()) {
             new WatchResponseHandler(owner, this, reconnectAttempt).handle(response);
@@ -287,7 +287,8 @@ final class ManagedDirectoryWatchSubscription implements ServiceDirectorySubscri
                 failure.toString());
         dispatcher.dispatch(() -> listener.onError(failure));
         ScheduledFuture<?> reconnectFuture =
-                owner.watchReconnectExecutorInternal()
+                owner
+                        .watchReconnectExecutorInternal()
                         .schedule(() -> connect(true), delay.toMillis(), TimeUnit.MILLISECONDS);
         replaceReconnectFuture(reconnectFuture);
     }

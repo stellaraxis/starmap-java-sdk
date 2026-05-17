@@ -41,10 +41,12 @@ final class HttpClientFactory {
         boolean ownsHeartbeatExecutor = settings.heartbeatExecutor() == null;
 
         OkHttpClient okHttpClient = buildOkHttpClient(settings.requestTimeout());
+        OkHttpClient watchOkHttpClient = buildWatchOkHttpClient(okHttpClient);
         HttpTransport httpTransport =
                 new HttpTransport(
                         StellMapClient.OBJECT_MAPPER,
                         okHttpClient,
+                        watchOkHttpClient,
                         settings.defaultHeaders(),
                         settings.metrics(),
                         settings.followLeaderRedirect());
@@ -109,10 +111,7 @@ final class HttpClientFactory {
         }
 
         return new WatchRuntimeResources(
-                watchExecutor,
-                ownsWatchExecutor,
-                watchReconnectExecutor,
-                ownsWatchReconnectExecutor);
+                watchExecutor, ownsWatchExecutor, watchReconnectExecutor, ownsWatchReconnectExecutor);
     }
 
     private ThreadFactory resolveThreadFactory(HttpOptions options, String prefix) {
@@ -132,6 +131,10 @@ final class HttpClientFactory {
                 .followRedirects(false)
                 .followSslRedirects(false)
                 .build();
+    }
+
+    private OkHttpClient buildWatchOkHttpClient(OkHttpClient okHttpClient) {
+        return okHttpClient.newBuilder().readTimeout(Duration.ZERO).callTimeout(Duration.ZERO).build();
     }
 
     /** 工厂输入配置。 */

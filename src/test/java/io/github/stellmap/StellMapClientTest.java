@@ -461,6 +461,51 @@ class StellMapClientTest {
     }
 
     @Test
+    void shouldKeepWatchOpenWhenSseStreamIsIdleBeyondRequestTimeout() throws Exception {
+        CountDownLatch openLatch = new CountDownLatch(1);
+        CountDownLatch errorLatch = new CountDownLatch(1);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        HttpServer server = startServer(exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, 0);
+            try (OutputStream outputStream = exchange.getResponseBody()) {
+                outputStream.flush();
+                awaitSilently(1200);
+            }
+        }, "/api/v1/registry/watch");
+
+        StellMapClientOptions options = options(server).toBuilder()
+                .requestTimeout(Duration.ofMillis(200))
+                .watchAutoReconnect(false)
+                .build();
+
+        try (StellMapClient client = new StellMapClient(options);
+             RegistryWatchSubscription subscription = client.watchInstances(RegistryQueryRequest.builder()
+                     .namespace("prod")
+                     .service("order-service")
+                     .build(), new RegistryWatchListener() {
+                 @Override
+                 public void onOpen() {
+                     openLatch.countDown();
+                 }
+
+                 @Override
+                 public void onEvent(RegistryWatchEvent event) {}
+
+                 @Override
+                 public void onError(Throwable throwable) {
+                     errorRef.set(throwable);
+                     errorLatch.countDown();
+                 }
+             })) {
+            assertTrue(openLatch.await(2, TimeUnit.SECONDS));
+            assertFalse(errorLatch.await(600, TimeUnit.MILLISECONDS), String.valueOf(errorRef.get()));
+            assertFalse(subscription.isClosed());
+        }
+    }
+
+    @Test
     void shouldUseSinceRevisionQueryParameterOnWatchResume() throws Exception {
         AtomicInteger attempts = new AtomicInteger();
         AtomicReference<String> secondQuery = new AtomicReference<>();
